@@ -1,0 +1,1 @@
+Get-CimInstance -ClassName Win32_UserProfile | Where-Object { $_.LocalPath.EndsWith("Student.DESKTOP-GJ23II6") } | Remove-CimInstance
