@@ -14,19 +14,20 @@ Function New-User {
 
     [CmdletBinding()]
     param (
-        [PARAMETER(Mandatory=$True)][String]$Name,
-        [PARAMETER(Mandatory=$True)][String]$Password
-        )
+        [PARAMETER(Mandatory = $True)][String]$Name,
+        [PARAMETER(Mandatory = $True)][String]$Password
+    )
 
-    $Usr = Get-WMIObject -class Win32_UserProfile -ComputerName $env:COMPUTERNAME | Where-Object {$_.LocalPath.Split("\")[-1] -eq $Name}
-    if ($Usr -eq $null) {
-        $Pwd = convertto-securestring $Password -asplaintext -force
+    $Usr = Get-WMIObject -class Win32_UserProfile -ComputerName $env:COMPUTERNAME | Where-Object { $_.LocalPath.Split("\")[-1] -eq $Name }
+    if ($null -eq $Usr) {
+        $securePwd = convertto-securestring $Password -asplaintext -force
         $GroupSID = "S-1-5-32-545"
-        New-LocalUser -User $Name -AccountNeverExpires:$true -FullName $Name -Password $Pwd -PasswordNeverExpires:$true
+        New-LocalUser -User $Name -AccountNeverExpires:$true -FullName $Name -Password $securePwd -PasswordNeverExpires:$true
         Add-LocalGroupMember -SID $GroupSID -Member $Name
 
         Write-Host "-- Created user $Name with password $Password" -foregroundcolor Green
-    } else {
+    }
+    else {
         Write-Host "-- User $Name has not been created"
     }
 }
@@ -43,14 +44,14 @@ Function Remove-Users {
     #>
     [CmdletBinding()]
 
-    $UsersProfiles = Get-WMIObject -class Win32_UserProfile -ComputerName $env:COMPUTERNAME | Where {!($_.Loaded) -and !($_.Special)}
-	foreach($Usr in $UsersProfiles) {
+    $UsersProfiles = Get-WMIObject -class Win32_UserProfile -ComputerName $env:COMPUTERNAME | Where-Object { !($_.Loaded) -and !($_.Special) }
+    foreach ($Usr in $UsersProfiles) {
         $UsrName = $Usr.LocalPath.Split("\")[2]
         Write-Host "-- Deleting user $UsrName ..." -foregroundcolor Green
         Remove-WmiObject -Path $Usr.__PATH
         Remove-LocalUser -Name $UsrName
         Write-Host "-- User $UsrName deleted" -foregroundcolor Green
-	}
+    }
 }
 
 Function Remove-User {
@@ -65,8 +66,19 @@ Function Remove-User {
     #>
     [CmdletBinding()]
     param (
-        [PARAMETER(Mandatory=$True)][String]$Name
+        [PARAMETER(Mandatory = $True)][String]$Name
     )
+
+    # $UsrCim = Get-CIMInstance -class Win32_UserProfile | Where-Object { $_.LocalPath.EndsWith($Name) }
+    # if ($UsrCim) {
+    #     $UsrName = $UsrCim.LocalPath.Split("\")[-1]
+    #     Write-Host "-- Deleting CIM user $UsrName ..." -foregroundcolor Green
+    #     Remove-CimInstance $UsrCim
+    #     Write-Host "-- User CIM $UsrName deleted" -foregroundcolor Green
+    # }
+    # else {
+    #     Write-Host "-- User CIM $UsrName not found"
+    # }
 
     $UsrWmi = Get-WMIObject -class Win32_UserAccount -ComputerName $env:COMPUTERNAME | Where-Object { $_.Name -eq $Name }
     if ($UsrWmi) {
@@ -74,23 +86,38 @@ Function Remove-User {
         $UsrName = $UsrWmi.Name
         Write-Host "-- Deleting WMI user $UsrName ..." -foregroundcolor Green
         # Remove-LocalUser -Name $UsrName
+        # TODO: try it
+        # $UsrWmi.Delete()
         Remove-LocalUser -SID $UsrWmi.SID    
         # Remove-WmiObject -Path $Usr.__PATH
         Write-Host "-- User WMI $UsrName deleted" -foregroundcolor Green
-    } else {
+    }
+    else {
         Write-Host "-- User WMI $UsrName not found"
     }
-
-    $UsrCim = Get-CIMInstance -class Win32_UserProfile | Where-Object { $_.LocalPath.EndsWith($Name) }
-    if ($UsrCim) {
-        $UsrName = $UsrCim.LocalPath.Split("\")[-1]
-        Write-Host "-- Deleting CIM user $UsrName ..." -foregroundcolor Green
-        Remove-CimInstance $UsrCim
-        Write-Host "-- User CIM $UsrName deleted" -foregroundcolor Green
-    } else {
-        Write-Host "-- User CIM $UsrName not found"
-    }
 }
+
+# TODO: try it
+# function Remove-LocalUserCompletely {
+
+#     Param(
+#         [Parameter(ValueFromPipelineByPropertyName)]
+#         $Name
+#     )
+
+#     process {
+#         $user = Get-LocalUser -Name $Name -ErrorAction Stop
+
+#         # Remove the user from the account database
+#         Remove-LocalUser -SID $user.SID
+
+#         # Remove the profile of the user (both, profile directory and profile in the registry)
+#         Get-CimInstance -Class Win32_UserProfile | ? SID -eq $user.SID | Remove-CimInstance
+#     }
+# }
+
+# Example usage:
+# Remove-LocalUserCompletely -Name 'myuser'
 
 Function Test-RegistryValue {
     param(
@@ -107,16 +134,19 @@ Function Test-RegistryValue {
     process {
         if (Test-Path $Path) {
             $Key = Get-Item -LiteralPath $Path
-            if ($Key.GetValue($Name, $null) -ne $null) {
+            if ($null -ne $Key.GetValue($Name, $null)) {
                 if ($PassThru) {
                     Get-ItemProperty $Path $Name
-                } else {
+                }
+                else {
                     $true
                 }
-            } else {
+            }
+            else {
                 $false
             }
-        } else {
+        }
+        else {
             $false
         }
     }
@@ -138,24 +168,27 @@ Function Set-AutoLogon {
 
     [CmdletBinding()]
     param (
-        [PARAMETER(Mandatory=$True)][String]$Name,
-        [PARAMETER(Mandatory=$True)][String]$Password
+        [PARAMETER(Mandatory = $True)][String]$Name,
+        [PARAMETER(Mandatory = $True)][String]$Password
     )
 
     $PathToWinlogon = "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon"
     if (Test-RegistryValue -Path $PathToWinlogon -Name AutoAdminLogon) {
         Set-ItemProperty -Path $PathToWinlogon -Name AutoAdminLogon  -Value 1  
-    } else {
+    }
+    else {
         New-ItemProperty -Path $PathToWinlogon -Name AutoAdminLogon  -Value 1 -PropertyType "String"
     }
     if (Test-RegistryValue -Path $PathToWinlogon -Name DefaultUserName) {
         Set-ItemProperty -Path $PathToWinlogon -Name DefaultUserName -Value $Name
-    } else {
+    }
+    else {
         New-ItemProperty -Path $PathToWinlogon -Name DefaultUserName -Value $Name -PropertyType "String"
     }
     if (Test-RegistryValue -Path $PathToWinlogon -Name DefaultPassword) {
         Set-ItemProperty -Path $PathToWinlogon -Name DefaultPassword -Value $Password
-    } else {
+    }
+    else {
         New-ItemProperty -Path $PathToWinlogon -Name DefaultPassword -Value $Password -PropertyType "String"
     }
 }
@@ -408,8 +441,8 @@ Add-Type -TypeDefinition $Source | Out-Null
 # -------------------------
 # Пересоздание пользователя
 # -------------------------
-$UserName    = "Student"
-$Password    = "Student"
+$UserName = "Student"
+$Password = "Student"
 
 # Remove-Users | Out-Null
 Remove-User -Name $UserName

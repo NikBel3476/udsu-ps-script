@@ -14,17 +14,20 @@ Function Set-Proxy {
 
     [CmdletBinding()]
     param (
-        [PARAMETER(Mandatory=$True)][String]$Server,
-        [PARAMETER(Mandatory=$True)][Int]$Port
-        )
+        [PARAMETER(Mandatory = $True)][String]$Server,
+        [PARAMETER(Mandatory = $True)][Int]$Port
+    )
 
-	If ((Test-NetConnection -ComputerName $Server -Port $Port).TcpTestSucceeded) {
-		Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -name ProxyServer -Value "$($Server):$($Port)"
-        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -name ProxyOverride -Value "<local>"
-		Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -name ProxyEnable -Value 1
-	} Else {
-		Write-Error -Message "-- Invalid proxy server address or port:  $($Server):$($Port)"
-	}
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -name ProxyServer -Value "$($Server):$($Port)"
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -name ProxyOverride -Value "<local>"
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -name ProxyEnable -Value 1
+
+    # If ((Test-NetConnection -ComputerName $Server -Port $Port).TcpTestSucceeded) {
+    #     Write-Host "Connection successful" -foregroundcolor Green
+    # }
+    # Else {
+    #     Write-Host "-- Invalid proxy server address or port:  $($Server):$($Port)"
+    # }
 }
 
 Function Set-AccessRule {
@@ -46,11 +49,11 @@ Function Set-AccessRule {
     #>
     [CmdletBinding()]
     param (
-        [PARAMETER(Mandatory=$True)][String]$Folder,
-        [PARAMETER(Mandatory=$True)][String]$UserName,
-        [PARAMETER(Mandatory=$True)][String]$Rules,
-        [PARAMETER(Mandatory=$True)][String]$AccessControlType
-        )
+        [PARAMETER(Mandatory = $True)][String]$Folder,
+        [PARAMETER(Mandatory = $True)][String]$UserName,
+        [PARAMETER(Mandatory = $True)][String]$Rules,
+        [PARAMETER(Mandatory = $True)][String]$AccessControlType
+    )
 
     #считываем текущий список ACL рабочего стола
     $acl = Get-Acl -Path $Folder
@@ -65,8 +68,7 @@ Function Set-AccessRule {
     Set-Acl -Path $Folder -AclObject $acl
 }
 
-function Set-PinnedApplication
-{
+function Set-PinnedApplication {
     <#
     .SYNOPSIS
         Управление ярлыками на панели управления
@@ -83,23 +85,24 @@ function Set-PinnedApplication
     #>
     [CmdletBinding()]
     param(
-            [Parameter(Mandatory=$True)][String]$Action, 
-            [Parameter(Mandatory=$True)][String]$FilePath
+        [Parameter(Mandatory = $True)][String]$Action, 
+        [Parameter(Mandatory = $True)][String]$FilePath
     )
-    if(-not (test-path $FilePath)) { 
+    if (-not (test-path $FilePath)) { 
         throw "FilePath does not exist."  
     }
     function InvokeVerb {
-        param([string]$FilePath,$verb)
-        $verb = $verb.Replace("&","")
+        param([string]$FilePath, $verb)
+        $verb = $verb.Replace("&", "")
         $path = split-path $FilePath
         $shell = new-object -com "Shell.Application" 
         $folder = $shell.Namespace($path)   
         $item = $folder.Parsename((split-path $FilePath -leaf))
-        $itemVerb = $item.Verbs() | ? {$_.Name.Replace("&","") -eq $verb}
-        if($itemVerb -eq $null){
+        $itemVerb = $item.Verbs() | Where-Object { $_.Name.Replace("&", "") -eq $verb }
+        if ($null -eq $itemVerb) {
             throw "Verb $verb not found."           
-        } else {
+        }
+        else {
             $itemVerb.DoIt()
         }
     }
@@ -107,7 +110,8 @@ function Set-PinnedApplication
         param([int]$verbId)
         try {
             $t = [type]"CosmosKey.Util.MuiHelper"
-        } catch {
+        }
+        catch {
             $def = [Text.StringBuilder]""
             [void]$def.AppendLine('[DllImport("user32.dll")]')
             [void]$def.AppendLine('public static extern int LoadString(IntPtr h,uint id, System.Text.StringBuilder sb,int maxBuffer);')
@@ -115,26 +119,26 @@ function Set-PinnedApplication
             [void]$def.AppendLine('public static extern IntPtr LoadLibrary(string s);')
             Add-Type -MemberDefinition $def.ToString() -name MuiHelper -namespace CosmosKey.Util            
         }
-        if($global:CosmosKey_Utils_MuiHelper_Shell32 -eq $null){        
+        if ($null -eq $global:CosmosKey_Utils_MuiHelper_Shell32) {        
             $global:CosmosKey_Utils_MuiHelper_Shell32 = [CosmosKey.Util.MuiHelper]::LoadLibrary("shell32.dll")
         }
-        $maxVerbLength=255
-        $verbBuilder = New-Object Text.StringBuilder "",$maxVerbLength
-        [void][CosmosKey.Util.MuiHelper]::LoadString($CosmosKey_Utils_MuiHelper_Shell32,$verbId,$verbBuilder,$maxVerbLength)
+        $maxVerbLength = 255
+        $verbBuilder = New-Object Text.StringBuilder "", $maxVerbLength
+        [void][CosmosKey.Util.MuiHelper]::LoadString($CosmosKey_Utils_MuiHelper_Shell32, $verbId, $verbBuilder, $maxVerbLength)
         return $verbBuilder.ToString()
     }
     $verbs = @{ 
-        "PintoTaskbar"=5386
-        "UnpinfromTaskbar"=5387
+        "PintoTaskbar"     = 5386
+        "UnpinfromTaskbar" = 5387
     }
-    if($verbs.$Action -eq $null){
+    if ($null -eq $verbs.$Action) {
         Throw "Action $action not supported`nSupported actions are:`n`tPintoTaskbar`n`tUnpinfromTaskbar"
     }
     InvokeVerb -FilePath $FilePath -Verb $(GetVerb -VerbId $verbs.$action)
 }
 
-Set-Proxy cproxy.udsu.ru 8080
 Set-AccessRule -Folder $env:USERPROFILE\Desktop\ -UserName $env:USERNAME -Rules "CreateFiles, AppendData, Delete" -AccessControlType "Deny"
+Set-Proxy cproxy.udsu.ru 8080
 
 # Set-PinnedApplication -Action UnpinfromTaskbar -FilePath "$env:ProgramFiles\Internet Explorer\iexplore.exe"
 # Set-PinnedApplication -Action PintoTaskbar -FilePath "${env:ProgramFiles(x86)}\Mozilla Firefox\firefox.exe"
