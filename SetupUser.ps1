@@ -137,6 +137,13 @@ function Set-PinnedApplication {
     InvokeVerb -FilePath $FilePath -Verb $(GetVerb -VerbId $verbs.$action)
 }
 
+# $UsrName = "Student"
+# $UsrWmi = Get-WMIObject -class Win32_UserProfile | Where-Object { $_.LocalPath.EndsWith($UsrName) }
+# if ($null -ne $UsrWmi) {
+#     $UserDesktopPath = "$($UsrWmi.LocalPath)\Desktop"
+#     Set-AccessRule -Folder $UserDesktopPath -UserName $userName -Rules "CreateFiles, AppendData, Delete" -AccessControlType "Deny"
+# }
+
 Set-AccessRule -Folder $env:USERPROFILE\Desktop\ -UserName $env:USERNAME -Rules "CreateFiles, AppendData, Delete" -AccessControlType "Deny"
 Set-Proxy cproxy.udsu.ru 8080
 
@@ -147,5 +154,8 @@ Set-Proxy cproxy.udsu.ru 8080
 # Set-PinnedApplication -Action PintoTaskbar -FilePath "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Microsoft Office 2013\PowerPoint 2013.lnk"
 # Set-PinnedApplication -Action PintoTaskbar -FilePath "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\АСКОН\КОМПАС-3D V16\КОМПАС-3D V16.lnk"
 
-# Удаление задачи, после ее выполнения
-Unregister-ScheduledTask -TaskName UdSUSettingStudent -Confirm:$false
+# Clean
+$cleaningScriptPath = "C:\Scripts\clean.ps1"
+Start-Process powershell "-File $cleaningScriptPath" -Verb runAs
+
+# Remove-Item -LiteralPath "C:\Scripts" -Force -Recurse

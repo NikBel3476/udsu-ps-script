@@ -1,2 +1,0 @@
-$AccountsToKeep = @('administrator','Public','default','DOMAIN\administrator')
-Get-CimInstance -ComputerName computer1,computer2 -Class Win32_UserProfile | Where-Object { $_.LocalPath.split('\')[-1] -notin $AccountsToKeep }

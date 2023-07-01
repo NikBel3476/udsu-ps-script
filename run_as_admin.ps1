@@ -69,31 +69,70 @@ Function Remove-User {
         [PARAMETER(Mandatory = $True)][String]$Name
     )
 
-    # $UsrCim = Get-CIMInstance -class Win32_UserProfile | Where-Object { $_.LocalPath.EndsWith($Name) }
-    # if ($UsrCim) {
-    #     $UsrName = $UsrCim.LocalPath.Split("\")[-1]
-    #     Write-Host "-- Deleting CIM user $UsrName ..." -foregroundcolor Green
-    #     Remove-CimInstance $UsrCim
-    #     Write-Host "-- User CIM $UsrName deleted" -foregroundcolor Green
-    # }
-    # else {
-    #     Write-Host "-- User CIM $UsrName not found"
-    # }
-
     $UsrWmi = Get-WMIObject -class Win32_UserAccount -ComputerName $env:COMPUTERNAME | Where-Object { $_.Name -eq $Name }
     if ($UsrWmi) {
         # $UsrName = $UsrWmi.LocalPath.Split("\")[-1]
         $UsrName = $UsrWmi.Name
         Write-Host "-- Deleting WMI user $UsrName ..." -foregroundcolor Green
         # Remove-LocalUser -Name $UsrName
-        # TODO: try it
-        # $UsrWmi.Delete()
         Remove-LocalUser -SID $UsrWmi.SID    
         # Remove-WmiObject -Path $Usr.__PATH
         Write-Host "-- User WMI $UsrName deleted" -foregroundcolor Green
     }
     else {
         Write-Host "-- User WMI $UsrName not found"
+    }
+
+    $UsrCim = Get-CIMInstance -class Win32_UserProfile | Where-Object { $_.LocalPath.EndsWith($Name) }
+    if ($UsrCim) {
+        $taskName = "DeleteUserCIM"
+        if ($UsrCim.Loaded) {
+            Write-Host "-- User CIM $Name is Loaded now, computer will be restarted. You MUST log in as high priveleged user at startup!!!"
+            $PathToWinlogon = "HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon"
+            if (Test-RegistryValue -Path $PathToWinlogon -Name AutoAdminLogon) {
+                Set-ItemProperty -Path $PathToWinlogon -Name AutoAdminLogon  -Value 0
+            }
+            else {
+                New-ItemProperty -Path $PathToWinlogon -Name AutoAdminLogon  -Value 0 -PropertyType "String"
+            }
+            Write-Host "-- Winlogon disabled"
+
+            $scriptPath = "C:\Scripts\run_as_admin.ps1"
+            $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-File $scriptPath"
+            $trigger = New-ScheduledTaskTrigger -AtLogon
+            $principal = New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
+            $settings = New-ScheduledTaskSettingsSet
+            $task = New-ScheduledTask -Action $action -Principal $principal -Trigger $trigger -Settings $settings
+            Register-ScheduledTask -TaskName $taskName -InputObject $task -Force
+            # schtasks /create /tn $taskName /tr "powershell -File $scriptPath" /sc onlogon /ru $env:USERDOMAIN\$env:USERNAME /f
+            # schtasks /create /tn $taskName /tr "powershell Start-Process powershell -verb runas -ArgumentList "-File $scriptPath"" /sc onlogon /f
+            write-host "-- Scheduled task to remove user profile" -foregroundcolor Green
+            # shutdown /r /t 60 /c "Computer will be rebooted with 60 seconds"
+            for (($i = 20); $i -gt 0; $i--) {
+                write-host "The system will reboot in $i sec"
+                Start-Sleep -Seconds 1
+            }
+            
+            Restart-Computer
+            exit
+        }
+
+        # remove task scheduled above
+        $task = Get-ScheduledTask | Where-Object { $_.TaskName -eq $taskName } | Select-Object -First 1
+        if ($null -ne $task) {
+            $taskNameToRemove = $task.TaskName
+            Unregister-ScheduledTask $taskNameToRemove -Confirm:$false
+            # schtasks /delete /tn $taskName /f
+            Write-Host "-- Task $taskNameToRemove unregistered"
+        }
+
+        $UsrName = $UsrCim.LocalPath.Split("\")[-1]
+        Write-Host "-- Deleting CIM user $UsrName ..." -foregroundcolor Green
+        Remove-CimInstance -InputObject $UsrCim
+        Write-Host "-- User CIM $UsrName deleted" -foregroundcolor Green
+    }
+    else {
+        Write-Host "-- User CIM $UsrName not found"
     }
 }
 
@@ -191,6 +230,8 @@ Function Set-AutoLogon {
     else {
         New-ItemProperty -Path $PathToWinlogon -Name DefaultPassword -Value $Password -PropertyType "String"
     }
+
+    Write-Host "-- Enabled winlogon for user $Name" -foregroundcolor Green
 }
 
 $Source = @'
@@ -449,16 +490,30 @@ Remove-User -Name $UserName
 New-User $UserName $Password | Out-Null
 Set-AutoLogon $UserName $Password | Out-Null
 [MyLsaWrapper.LsaWrapperCaller]::AddPrivileges($UserName, "SeBatchLogonRight") | Out-Null
-write-host "-- allowed to log in as a batch job for the user $UserName" -foregroundcolor Green
+write-host "-- Allowed to log in as a batch job for the user $UserName" -foregroundcolor Green
 # Set-AccessRule -Folder "C:\Users\$UserName\Desktop\" -UserName $env:USERNAME -Rules "CreateFiles, AppendData, Delete" -AccessControlType "Deny"
 
 $setupUserScriptPath = "C:\Scripts\SetupUser.ps1"
-New-Item -ItemType File -Path $setupUserScriptPath -Force | Out-Null
-Copy-Item ".\SetupUser.ps1" $setupUserScriptPath -Force
-schtasks /create /tn LogonUserSettings /tr "powershell -File $setupUserScriptPath" /sc onlogon /ru $env:USERDOMAIN\$UserName /rp $Password /f
+# New-Item -ItemType File -Path $setupUserScriptPath -Force | Out-Null
+# Copy-Item ".\SetupUser.ps1" $setupUserScriptPath -Force
+# schtasks /create /tn "SetUserSettingsOnLogon" /tr "powershell -File $setupUserScriptPath" /sc onlogon /ru $env:USERDOMAIN\$UserName /rp $Password /f
+$setupUserTaskName = "SetUserSettingsOnLogon"
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-File $setupUserScriptPath"
+$trigger = New-ScheduledTaskTrigger -AtLogon
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERDOMAIN\$UserName -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet
+$task = New-ScheduledTask -Action $action -Principal $principal -Trigger $trigger -Settings $settings
+Register-ScheduledTask -TaskName $setupUserTaskName -InputObject $task -Force | Out-Null
+write-host "-- Scheduled task to setup user $UserName" -foregroundcolor Green
+# $taskObject = Get-ScheduledTask $setupUserTaskName
+# $taskObject.Author = "$env:USERDOMAIN\$UserName"
+# $taskObject | Set-ScheduledTask | Out-Null
+# write-host "-- Task to setup user $UserName updated" -foregroundcolor Green
+
+# shutdown /r /t 60 /c "Computer will be rebooted with 60 seconds"
 
 for (($i = 20); $i -gt 0; $i--) {
-    write-host "System will restart after $i sec"
+    write-host "The system will reboot in $i sec"
     Start-Sleep -Seconds 1
 }
 
